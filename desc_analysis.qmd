@@ -1,0 +1,328 @@
+---
+title: "Descriptive analysis"
+author: "Altug Didikoglu"
+format: 
+  html:
+    self-contained: true
+    code-tools: true
+---
+
+# Preface
+
+This is a descriptive analysis of the dataset.
+
+```{r}
+#| label: setup
+#| include: false
+library(LightLogR)
+library(glue)
+library(tidyverse)
+library(gt)
+library(readxl)
+library(cowplot)
+library(legendry)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(patchwork)
+library(rlang)
+```
+
+# Overview
+
+## Data import: wearable data
+
+```{r}
+#| label: "general information"
+#time zone of Manchester
+tz <-  "Europe/London"
+#coordinates for Manchester
+coordinates <- c(53.47, -2.23)
+country_colors <- c(
+  UK     = "blue"
+)
+
+```
+
+```{r}
+#import files
+load("../data/light_data_uk.RData")
+load("../data/kss_data_uk.RData")
+load("../data/sample_data_uk.RData")
+load("../data/sleep_data_uk.RData")
+data <- light_data
+```
+
+## Regularizing data
+
+In the first step, we will trim the data by the study time.
+
+```{r}
+data |> has_gaps()
+data |> has_irregulars()
+```
+
+```{r}
+#| fig-height: 15
+#| fig-width: 5
+#remove days that have more than 25% missing data
+data_cleaned <- 
+  data |>
+  group_by(Id) |>
+  add_Date_col(group.by = TRUE) |>
+  remove_partial_data(MEDI,
+    threshold.missing = 0.25,
+    handle.gaps = TRUE)
+#remove irregular and gap data
+data_cleaned <- 
+data_cleaned |> 
+  cut_Datetime("30 secs", New.colname = Datetime) |> #remove irregular data
+  gap_handler(full.days = TRUE) #remove implicit gaps
+data_cleaned |> has_gaps() #no more implicit gaps
+data_cleaned |> has_irregulars() #no more irregular data
+data_cleaned |> gap_table(MEDI, epoch = "30 secs") 
+```
+
+## Visualization
+
+### Overview
+
+```{r}
+#| warning: false
+P_overview <-
+data |>
+  mutate(Id = Id |> factor(),
+         Id = Id |> fct_rev()
+         ) |> 
+  gg_overview(col = "UK", Id.colname = Id) +
+  labs(x = "Month") +
+  scale_x_datetime(date_labels = "%b %Y") +
+  scale_color_manual(values = country_colors) + 
+  guides(colour = "none") +
+  labs(y = "ID")
+P_overview
+```
+
+### Photoperiod
+
+```{r}
+#| warning: false
+limits <- 
+photoperiod(coordinates,  
+            seq(from = as_date("2023-01-01"),
+                to = as_date("2023-12-31"), 
+                by = 1),
+            tz = tz
+            ) |> pull(photoperiod)
+
+photoperiods <- 
+  photoperiod(coordinates,  
+            data |> 
+              add_Date_col(group.by = TRUE) |> 
+              summarize(.groups = "drop") |> 
+              pull(Date),
+            tz = tz
+            )
+
+axis_name <- 
+  glue("Possible and <b style = 'color:{country_colors['UK']}'>actual</b> photoperiod (hours) at {round(coordinates[1], 1)}° N, {abs(round(coordinates[2], 1))}°W")
+
+photoperiods_range <- photoperiods$photoperiod |> range() |> round(1)
+
+P_photoperiod <-
+photoperiods |> 
+  ggplot(aes(x=photoperiod)) +
+  geom_boxplot(aes(y= -1, col = "UK"), ) +
+  geom_histogram(bins = 25, 
+                 alpha = 0.25, 
+                 aes(fill = "a"),
+                 data = tibble(photoperiod = limits)) +
+  geom_histogram(bins = 25, aes(fill = "UK")) +
+  scale_x_continuous(breaks = inject(seq(!!!photoperiods_range, by = 0.5))) +
+  scale_color_manual(values = country_colors) + 
+  scale_fill_manual(values = country_colors) + 
+  labs( 
+       y = "Number of days", 
+       x = axis_name) +
+  theme_cowplot() +
+  guides(
+         fill = "none", color = "none") +
+  coord_cartesian(xlim = photoperiods_range) +
+  theme(axis.title.x = ggtext::element_markdown())
+```
+
+## Worldmap
+
+```{r}
+#| warning: false
+# load worldmap
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# countries and their colors
+countries_colors <- tibble(
+  country = "UK",
+  color = country_colors[country],
+  stringsAsFactors = FALSE
+)
+
+# Coordinates of countries capitals
+capitals_info <- tibble(
+  country = "United Kingdom",
+  capital = "Manchester",
+  lat = coordinates[1],
+  lon = coordinates[2],
+  color = "UK",
+  stringsAsFactors = FALSE
+)
+
+capitals_info <- 
+  capitals_info %>% 
+  mutate(
+    label = 
+      paste0(capital, ", ", country, " (", 
+             lat |> abs() %>% round(1), "° N, ", lon |> abs() %>% round(1), "° W)")
+  )
+
+# Worldmap
+world$color <- ifelse(world$name %in% countries_colors$country, countries_colors$country[match(world$name, countries_colors$country)], NA)
+
+# Capitals as 'sf' Object
+capitals <- st_as_sf(capitals_info, coords = c("lon", "lat"), crs = st_crs(world))
+
+# bring everyting together
+P_map <-
+ggplot() +
+  geom_sf(data = world, aes(fill = color), color = NA, size = 0.25, alpha = 0.5, show.legend = FALSE) + # Colors with transparancy
+  geom_sf(data = capitals, aes(fill = color), shape = 21, color = "black", size = 3, stroke = 0.2) + # Dots for capitals
+  geom_sf_label(
+    data = capitals,
+    aes(label = capitals_info$label, lat = geometry$y, lon = geometry$x, fill = color),
+    nudge_y = 12,
+    size = 3,
+    alpha = 0.75,
+    box.padding = 0.35,
+    point.padding = 0.5,
+    segment.color = 'grey50',
+  ) + # Capitals
+  geom_sf_text(
+    data = capitals,
+    aes(label = capitals_info$label, lat = geometry$y, lon = geometry$x),
+    nudge_y = 12,
+    size = 3,
+    box.padding = 0.35,
+    label.size = 0,
+    point.padding = 0.5,
+    segment.color = 'grey50', color = "white"
+  ) + # Capitals
+  scale_fill_manual(values = country_colors) +
+  theme_void() +
+  theme(legend.position = "none") + # No legend
+  labs(x=NULL, y = NULL)
+```
+
+## Average day
+
+```{r}
+Brown_bracket <- primitive_bracket(
+  # Keys determine what is displayed
+  key = key_range_manual(start = c(0, 1.0001,250), 
+                         end = c(1, 10, Inf), 
+                         name = c("sleep", "evening", "daytime")),
+  bracket = "square",
+  theme = theme(
+    legend.text = element_text(angle = 90, hjust = 0.5),
+    axis.text.y.left = element_text(angle = 90, hjust = 0.5)
+  )
+)
+
+P_average <-
+data_cleaned |> 
+  ungroup() |> 
+  select(Datetime, MEDI) |> 
+  aggregate_Date(
+    unit = "15 mins",
+    numeric.handler = \(x) median(x, na.rm = TRUE),
+    upper95 = quantile(MEDI, 0.975, na.rm = TRUE),
+    upper75 = quantile(MEDI, 0.875, na.rm = TRUE),
+    upper50 = quantile(MEDI, 0.75, na.rm = TRUE),
+    lower50 = quantile(MEDI, 0.125, na.rm = TRUE),
+    lower75 = quantile(MEDI, 0.25, na.rm = TRUE),
+    lower95= quantile(MEDI, 0.025, na.rm = TRUE)
+  ) |> 
+  add_photoperiod(coordinates) |> 
+  gg_doubleplot(geom = "blank", 
+                facetting = FALSE, 
+                jco_col = FALSE,
+                x.axis.label = "Local time (HH:MM)",
+                y.axis.label = "Melanopic EDI (lx)") |> 
+  gg_photoperiod() +
+  geom_ribbon(aes(ymin = lower95, ymax = upper95, fill = "UK"), alpha = 0.4) +
+  geom_ribbon(aes(ymin = lower75, ymax = upper75, fill = "UK"), alpha = 0.4) +
+  geom_ribbon(aes(ymin = lower50, ymax = upper50, fill = "UK"), alpha = 0.4) +
+  geom_line(aes(y = MEDI)) +
+  map(c(1,10,250), 
+      \(x) geom_hline(aes(yintercept = x), col = "grey", linetype = "dashed")
+      ) +
+  scale_fill_manual(values = country_colors) +
+  coord_cartesian(ylim = c(0, 100000)) +
+  guides(fill = "none", y = guide_axis_stack(Brown_bracket, "axis")) +
+  # labs(x = NULL)
+  labs(
+    caption = glue(
+      "<i>daytime</i>, <i>evening</i>, and <i>sleep</i> indicate recommendations for healthy light exposure (Brown et al., 2022). <b>Median</b> with <b style = 'color:{alpha(country_colors['UK'], alpha = 0.9)}'>50%</b>, <b style = 'color:{alpha(country_colors['UK'], alpha = 0.7)}'>75%</b>, or <b style = 'color:{alpha(country_colors['UK'], alpha = 0.5)}'>95%</b> of data."
+    )
+    ) +
+  theme(plot.caption = ggtext::element_markdown())
+```
+
+## KSS and sleep graphs
+
+```{r}
+#| warning: false
+P_kss <-
+kss_data |> 
+  ggplot(aes(x=KSS)) +
+  geom_histogram(binwidth = 1, aes(fill = "UK")) +
+  scale_x_continuous(breaks = seq(1,10, by = 1)) +
+  scale_fill_manual(values = country_colors) + 
+  labs( 
+       y = "Count", 
+       x = "Karolinska Sleepiness Scale (KSS)") +
+  theme_cowplot() +
+  guides(fill = "none")
+P_sleepduration <-
+sleep_data |> 
+  ggplot(aes(x=sleep_duration)) +
+  geom_histogram(binwidth = 1, aes(fill = "UK")) +
+  scale_x_continuous(breaks = seq(0,15, by = 1)) +
+  scale_fill_manual(values = country_colors) + 
+  labs( 
+       y = "Number of days", 
+       x = "Sleep duration (hours)") +
+  theme_cowplot() +
+  guides(fill = "none")
+```
+
+## Combining plots
+
+```{r}
+#| warning: false
+#| fig-height: 8
+#| fig-width: 12
+final_plot <- (
+  (P_map + P_photoperiod) / 
+  P_average  /
+  (P_sleepduration + P_kss) 
+) +
+  plot_layout(widths = c(1, 2)) +  
+  plot_annotation(tag_levels = 'A') &
+  theme(
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 10),
+    plot.tag = element_text(size = 20, face = "plain")
+  )
+ggsave("../output/figures/Figure_1.png", width = 15, height = 15, scale = 2, units = "cm")
+```
+
+
+
