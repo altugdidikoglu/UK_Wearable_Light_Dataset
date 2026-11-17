@@ -8,7 +8,7 @@
 **Version v2.0.0**
 
 <figure>
-<img src="output/figures/Figure_1.png"
+<img src="figures/Figure_1.png"
 alt="(A) frequency of age, sex, and workdays, (B) location of data collection, (C) double plot of median, interquartile range (50%), 75%, and 95% ribbons of light exposure across all participants, shaded areas indicate nighttime from civil dusk to civil dawn, (D) histogram of sleep duration, (E) histogram of sleepiness scores, (F) histogram of PSQI scores, and (G) histogram of MCTQ MSFsc." />
 <figcaption aria-hidden="true">(A) frequency of age, sex, and workdays,
 (B) location of data collection, (C) double plot of median,

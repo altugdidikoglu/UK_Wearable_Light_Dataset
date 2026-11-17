@@ -17,7 +17,7 @@ knitr::opts_chunk$set(
 
 **Version v2.0.0**
 
-![(A) frequency of age, sex, and workdays, (B) location of data collection, (C) double plot of median, interquartile range (50%), 75%, and 95% ribbons of light exposure across all participants, shaded areas indicate nighttime from civil dusk to civil dawn, (D) histogram of sleep duration, (E) histogram of sleepiness scores, (F) histogram of PSQI scores, and (G) histogram of MCTQ MSFsc.](output/figures/Figure_1.png)
+![(A) frequency of age, sex, and workdays, (B) location of data collection, (C) double plot of median, interquartile range (50%), 75%, and 95% ribbons of light exposure across all participants, shaded areas indicate nighttime from civil dusk to civil dawn, (D) histogram of sleep duration, (E) histogram of sleepiness scores, (F) histogram of PSQI scores, and (G) histogram of MCTQ MSFsc.](figures/Figure_1.png)
 
 ### About this repository
 
@@ -38,7 +38,7 @@ APA reference:
 ## Summary of the dataset
 
 |  |  |
-|-----------------------------------------|-------------------------------|
+|------------------------------------|------------------------------------|
 | Period of data collection (total) | February 2022 – August 2023 |
 | Location | Manchester, UK |
 | Number of participants included in this repository | N = 119 |
@@ -53,7 +53,7 @@ All data are anonymous.
 Each data file includes information from all participants.
 
 | File name | Content |
-|-----------------|-------------------------------------------------------|
+|------------------------------------|------------------------------------|
 | **light/SW\_[Participant_id].csv** | **MEDI**: Melanopic Equivalent Daylight Illuminance (lux), recorded every 30 seconds. **Datetime**: Measurement timestamps are in local time ("Europe/London" timezone). |
 | **sleep.csv** | **Date** & **wake_datetime** & **bedtime_datetime**: Survey completion timestamps are recorded in local time ("Europe/London" timezone). Wake and sleep times are also reported in local time. **Sleep duration**: Subjectively reported total sleep duration (in hours). **Sleep onset latency**: Time taken to fall asleep (in minutes). **Sleep quality**: Self-reported using a 5-point Likert scale ranging from *very bad* to *very good*. Self-reported yes/no responses for **workday_yesterday** and **nap_yesterday**. |
 | **kss.csv** | **KSS**: Karolinska Sleepiness Scale, ranging from 1 to 10 (where 10 indicates the highest level of sleepiness). **Date** & **Time**: Survey completion timestamps are recorded in local time ("Europe/London" timezone). |
