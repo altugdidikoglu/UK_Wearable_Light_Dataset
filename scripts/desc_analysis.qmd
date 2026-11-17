@@ -26,6 +26,9 @@ library(rnaturalearthdata)
 library(sf)
 library(patchwork)
 library(rlang)
+library(dplyr)
+library(purrr)
+library(readr)
 ```
 
 # Overview
@@ -41,21 +44,53 @@ coordinates <- c(53.47, -2.23)
 country_colors <- c(
   UK     = "blue"
 )
-
 ```
 
 ```{r}
 #import files
-load("../data/light_data_uk.RData")
-load("../data/kss_data_uk.RData")
-load("../data/sample_data_uk.RData")
-load("../data/sleep_data_uk.RData")
-data <- light_data
+kss <- read_csv("../data/kss.csv")
+sleep <- read_csv("../data/sleep.csv")
+screening <- read_csv("../data/screening.csv")
+mctq <- read_csv("../data/mctq.csv")
+psqi <- read_csv("../data/psqi.csv")
 ```
 
 ## Regularizing data
 
-In the first step, we will trim the data by the study time.
+```{r}
+light_dir <- "../data/light"
+light_files <- list.files(
+  light_dir,
+  pattern = "^SW_[0-9]{5}\\.csv$",
+  full.names = TRUE
+)
+read_light_file <- function(file) {
+  dat <- read_csv(
+    file,
+    show_col_types = FALSE,
+    col_types = cols(
+      Participant_id = col_character(),
+      Device_id = col_character(),
+      Datetime = col_character(),
+      .default = col_double()
+    )
+  )
+  dat <- dat %>%
+    mutate(
+      Id = Participant_id,
+      Datetime = as.POSIXct(
+        Datetime,
+        format = "%Y-%m-%d %H:%M:%S",
+        tz = tz
+      )
+    )
+  dat
+}
+light_data <- map_dfr(light_files, read_light_file) %>%
+  arrange(Id, Datetime) %>%
+  group_by(Id)
+data <- light_data
+```
 
 ```{r}
 data |> has_gaps()
@@ -65,22 +100,14 @@ data |> has_irregulars()
 ```{r}
 #| fig-height: 15
 #| fig-width: 5
-#remove days that have more than 25% missing data
-data_cleaned <- 
-  data |>
-  group_by(Id) |>
-  add_Date_col(group.by = TRUE) |>
-  remove_partial_data(MEDI,
-    threshold.missing = 0.25,
-    handle.gaps = TRUE)
 #remove irregular and gap data
-data_cleaned <- 
-data_cleaned |> 
+data_cleaned <- data |> 
   cut_Datetime("30 secs", New.colname = Datetime) |> #remove irregular data
-  gap_handler(full.days = TRUE) #remove implicit gaps
+  gap_handler(full.days = TRUE) |> #remove implicit gaps
+  add_Date_col(group.by = FALSE) 
 data_cleaned |> has_gaps() #no more implicit gaps
 data_cleaned |> has_irregulars() #no more irregular data
-data_cleaned |> gap_table(MEDI, epoch = "30 secs") 
+data_cleaned |> gap_table()
 ```
 
 ## Visualization
@@ -245,8 +272,8 @@ data_cleaned |>
     upper95 = quantile(MEDI, 0.975, na.rm = TRUE),
     upper75 = quantile(MEDI, 0.875, na.rm = TRUE),
     upper50 = quantile(MEDI, 0.75, na.rm = TRUE),
-    lower50 = quantile(MEDI, 0.125, na.rm = TRUE),
-    lower75 = quantile(MEDI, 0.25, na.rm = TRUE),
+    lower50 = quantile(MEDI, 0.25, na.rm = TRUE),
+    lower75 = quantile(MEDI, 0.125, na.rm = TRUE),
     lower95= quantile(MEDI, 0.025, na.rm = TRUE)
   ) |> 
   add_photoperiod(coordinates) |> 
@@ -275,13 +302,13 @@ data_cleaned |>
   theme(plot.caption = ggtext::element_markdown())
 ```
 
-## KSS and sleep graphs
+## Surveys, KSS and sleep graphs
 
 ```{r}
 #| warning: false
 P_kss <-
-kss_data |> 
-  ggplot(aes(x=KSS)) +
+kss |> 
+  ggplot(aes(x=kss)) +
   geom_histogram(binwidth = 1, aes(fill = "UK")) +
   scale_x_continuous(breaks = seq(1,10, by = 1)) +
   scale_fill_manual(values = country_colors) + 
@@ -291,7 +318,7 @@ kss_data |>
   theme_cowplot() +
   guides(fill = "none")
 P_sleepduration <-
-sleep_data |> 
+sleep |> 
   ggplot(aes(x=sleep_duration)) +
   geom_histogram(binwidth = 1, aes(fill = "UK")) +
   scale_x_continuous(breaks = seq(0,15, by = 1)) +
@@ -301,6 +328,88 @@ sleep_data |>
        x = "Sleep duration (hours)") +
   theme_cowplot() +
   guides(fill = "none")
+P_psqi <-
+psqi |> 
+  ggplot(aes(x=psqi_total)) +
+  geom_histogram(binwidth = 1, aes(fill = "UK")) +
+  scale_x_continuous(breaks = seq(0,21, by = 1)) +
+  scale_fill_manual(values = country_colors) + 
+  labs( 
+       y = "Count", 
+       x = "PSQI") +
+  theme_cowplot() +
+  guides(fill = "none")
+P_mctq <-
+mctq |> 
+  ggplot(aes(x=MSFsc)) +
+  geom_histogram(binwidth = 1, aes(fill = "UK")) +
+  scale_x_continuous(breaks = seq(0,12, by = 1)) +
+  scale_fill_manual(values = country_colors) + 
+  labs( 
+       y = "Count", 
+       x = "MCTQ MSFsc") +
+  theme_cowplot() +
+  guides(fill = "none")
+plot_data <- bind_rows(
+  data.frame(
+    Variable = "Workday",
+    Category = as.character(sleep$workday_yesterday)
+  ),
+  data.frame(
+    Variable = "Sex",
+    Category = as.character(screening$sex)
+  ),
+  data.frame(
+    Variable = "Age",
+    Category = as.character(screening$age)
+  )
+  ) |>
+  filter(!is.na(Category)) |>
+  count(Variable, Category) |>
+  group_by(Variable) |>
+  mutate(
+    Percent = n / sum(n),
+    Label = paste0(Category, "\n", round(Percent * 100, 1), "%"),
+    Fill = paste(Variable, Category, sep = "_")
+  ) |>
+  ungroup()
+plot_data <- plot_data |>
+  group_by(Variable) |>
+  mutate(
+    Label = ifelse(
+      Variable == "Age" & rank(-Percent, ties.method = "first") > 3,
+      "",
+      Label
+    )
+  ) |>
+  ungroup()
+P_cat <-
+  plot_data |>
+  ggplot(aes(x = Variable, y = Percent, fill = Fill)) +
+  geom_col(width = 0.65, color = "white") +
+  geom_text(
+    aes(label = Label),
+    position = position_stack(vjust = 0.5),
+    size = 3,
+    fontface = "bold"
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_fill_manual(
+    values = setNames(
+      hcl.colors(nrow(plot_data), "Set 3"),
+      plot_data$Fill
+    )
+  ) +
+  labs(
+    x = NULL,
+    y = "Percentage (%)"
+  ) +
+  theme_cowplot() +
+  theme(legend.position = "none")
 ```
 
 ## Combining plots
@@ -310,18 +419,28 @@ sleep_data |>
 #| fig-height: 8
 #| fig-width: 12
 final_plot <- (
-  (P_map + P_photoperiod) / 
-  P_average  /
-  (P_sleepduration + P_kss) 
+  (P_cat + P_map) /
+  P_average /
+  (P_sleepduration + P_kss) /
+  (P_psqi + P_mctq)
 ) +
-  plot_layout(widths = c(1, 2)) +  
+  plot_layout(
+    heights = c(1.5, 2, 1.2, 1.2)
+  ) +
   plot_annotation(tag_levels = 'A') &
   theme(
     axis.title = element_text(size = 10),
     axis.text = element_text(size = 10),
     plot.tag = element_text(size = 20, face = "plain")
   )
-ggsave("../output/figures/Figure_1.png", width = 15, height = 15, scale = 2, units = "cm")
+ggsave(
+  "../output/figures/Figure_1.png",
+  plot = final_plot,
+  width = 15,
+  height = 15,
+  scale = 2,
+  units = "cm"
+)
 ```
 
 
